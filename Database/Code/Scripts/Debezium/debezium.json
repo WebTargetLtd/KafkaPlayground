@@ -1,0 +1,16 @@
+{
+  "name": "bip-connector",
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+  "plugin.name": "pgoutput",
+  "topic.prefix": "bips",
+  "topic.creation.default.partitions": "8",
+  "topic.creation.default.compression.type": "lz4",
+  "topic.creation.default.replication.factor": "1",
+  "database.hostname": "dbsrc",
+  "database.port": "5432",
+  "database.user": "postgres",
+  "database.password": "postgres",
+  "database.dbname": "kafka_src_db",
+  "database.server.name": "rpi5-Kafka",
+  "table.include.list": "bips.t_bips"
+}

@@ -1,0 +1,136 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    ports:
+      - "${ZOOKEEPERPORT}:${ZOOKEEPERPORT}"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPERPORT}
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      kafka-network:
+
+  dbsrc:
+    container_name: kafkadb_src
+    image: debezium/postgres:16-alpine
+    hostname: "${PGHOST}"
+    command: -c 'shared_buffers=256MB' -c 'max_connections=30' -c 'wal_level=logical'
+    ports:
+      - "${EXPOSEPGPORT}:5432"
+    environment:
+      PGUSER: ${PGUSER}
+      PGPASSWORD: ${PGPASSWORD}
+      PGDATABASE: ${PGDATABASE}
+      POSTGRES_PASSWORD: ${PGPASSWORD}
+      POSTGRES_DB: ${PGDATABASE}
+    networks:
+      kafka-network:
+    volumes:
+      - ./../Database/persistence/delta_dbdata:/var/lib/postgresql/data:rw            
+      - ./../Database/init-scripts:/docker-entrypoint-initdb.d
+      - ./../Database/Code/Scripts:/Scripts
+      - ./../Database/Code/Backups:/Backups
+    restart: unless-stopped
+  
+  consumer:
+    build: ./consumer
+    container_name: consumer
+    tty: true
+    env_file:
+      - .env
+    networks:
+      kafka-network:
+    depends_on:
+      - kafka
+
+  filthfilter:
+    build: ./filthfilter
+    container_name: filthfilter
+    networks:
+      kafka-network:
+    depends_on:
+      - consumer
+    environment:
+      BOOTSTRAPSERVERS: ${BOOTSTRAPSERVERS}
+      KAFKAPORT: ${KAFKAPORT}
+      CLEANTOPIC: ${CLEANTOPIC}
+      FILTHTOPIC: ${FILTHTOPIC}
+      FILTERGROUPID: ${FILTERGROUPID}
+      GROUPID: ${GROUPID}
+      BIPTOPIC: ${BIPTOPIC}
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "${KAFKAPORT}:${KAFKAPORT}"
+    networks:
+      kafka-network:
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:${ZOOKEEPERPORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT #,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://:${KAFKAPORT} #,PLAINTEXT_HOST://127.0.0.1:2${KAFKAPORT}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LISTENERS: PLAINTEXT://:${KAFKAPORT} #, PLAINTEXT_HOST://:2${KAFKAPORT}
+      
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "${UIPORT}:8080"
+    depends_on:
+      - kafka
+    networks:
+      kafka-network:
+    environment:
+      KAFKA_CLUSTERS_0_NAME: webtarget_cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: ${BOOTSTRAPSERVERS}:${KAFKAPORT}
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:${ZOOKEEPERPORT}
+
+  debezium:
+    # image: debezium/connect:1.4
+    image: debezium/connect:2.5.2.Final
+    container_name: debezium
+    networks:
+      kafka-network:
+    environment:
+      BOOTSTRAP_SERVERS: ${BOOTSTRAPSERVERS}:${KAFKAPORT}
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      # KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      # VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMAREGPORT}
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: http://schema-registry:${SCHEMAREGPORT}
+    depends_on: [kafka]
+    ports:
+      - 8083:8083
+    volumes:
+      - ./../Database/Code/Scripts/Debezium:/Scripts
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:latest-ubi8
+    environment:      
+      - SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL=zookeeper:${ZOOKEEPERPORT}
+      - SCHEMA_REGISTRY_HOST_NAME=schema-registry
+      - SCHEMA_REGISTRY_LISTENERS=http://schema-registry:${SCHEMAREGPORT},http://localhost:${SCHEMAREGPORT}
+      - SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS=${BOOTSTRAPSERVERS}:${KAFKAPORT}
+    networks:
+      kafka-network:
+    ports:
+      - ${SCHEMAREGPORT}:${SCHEMAREGPORT}
+    depends_on: [zookeeper, kafka]
+
+networks:
+  kafka-network:
+
+volumes: 
+   delta_dbdata:
