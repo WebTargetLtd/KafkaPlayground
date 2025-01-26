@@ -139,7 +139,7 @@ This one is more exciting. We have over 5 million records to transfer. We can do
 
 ```
 
-Once the data is loaded into the t_bips table and the db transcation has committed (about 3 seconds for 10K records on the RPI5), then Debezium will pick the records from the log and they'll start to appear in the kafka-ui.
+Once the data is loaded into the t_bips table and the db transaction has committed (about 3 seconds for 10K records on the RPI5), then Debezium will pick the records from the log and they'll start to appear in the kafka-ui.
 
 ## Speed
 
